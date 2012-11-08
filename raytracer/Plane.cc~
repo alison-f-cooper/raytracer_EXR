@@ -1,0 +1,86 @@
+//Plane class implementation
+
+#include "Plane.h"
+
+//default constructor
+Plane::Plane()
+{
+	norm = MyVector(0,0,0);
+	d = 0;
+}
+
+//constructor from three points and scalar d, distance from the origin
+
+Plane::Plane(float nx, float ny, float nz, float distance)
+{
+	d = distance;
+
+	//calculate the normal vector from the three points
+
+	norm = MyVector(nx, ny, nz);
+	norm.normalize();
+
+	//solve for a point; ax+by+cz = d, make x and y 0 (arbitrary);
+	//solve for z, store the point; cz = d.
+
+	float z = d / norm.getZ();
+
+	p = MyPoint(0,0,z); 
+}
+
+//intersection method inherited from abstract superclass surface
+bool Plane:: intersects(MyRay * r, Intersection * i)
+{
+	//calculate first the dot product of the direction of the
+	//ray and the normal of the plane; if it's 0, then the
+	//two are parallel 
+
+	MyVector dir = r->getDirection();
+	float denominator = dir.dotProduct(norm);
+	if(denominator == 0)
+		return false;
+	
+	//calculate t. Make a vector from 0,0,0 to the origin of the
+	//ray to be able to use the dotProduct method; just makes the
+	//ray origin the components of the vector
+	MyPoint zero = MyPoint(0,0,0);
+	MyPoint ray_o = r->getOrigin();
+	MyVector p0 = MyVector(zero, ray_o);
+	float dotProd = p0.dotProduct(norm);
+	float numerator = -(dotProd + d);
+	float t = numerator / denominator;
+	//if t is negative, an intersection doesn't exist; we're behind
+	//the camera
+	if(t < 0)
+		return false;
+	//calculate intersection point, store it and other intersection info
+	i->setT1(t);
+	MyVector td = dir;
+	td.times(t);
+	MyPoint p = ray_o;
+	p.plus(td);
+	i->setPoint1(p);
+	i->setTwice(false); //only going to have one intersection
+	//the normal at the intersection point is the normal of the plane
+	i->setNorm1(norm); 
+	return true;
+}
+
+//assignment operator
+
+Plane & Plane::operator=(const Plane & other)
+{
+	this->norm = other.norm;
+	this->p = other.p;
+	this->d = other.d;
+	return *this;
+}
+
+//print
+
+void Plane::print()
+{
+	cout << "Normal: ";
+	norm.print();
+	cout << "		d: " << d;
+}

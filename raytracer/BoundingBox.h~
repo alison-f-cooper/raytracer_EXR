@@ -1,0 +1,42 @@
+//Header file to describe bounding box object
+
+#ifndef BOUNDINGBOX_H
+#define BOUNDINGBOX_H
+
+#include "MyPoint.h"
+#include "MyRay.h"
+
+
+class BoundingBox
+{
+
+	public:
+		//default constructor
+		BoundingBox();
+		//constructor
+		BoundingBox(MyPoint & min_point, MyPoint & max_point);
+		//print
+		void print();
+		
+		//setters
+		void setMin(MyPoint & min_point){min = min_point;};
+		void setMax(MyPoint & max_point){max = max_point;};
+
+		//getters
+		MyPoint getMin(){return min;};
+		MyPoint getMax(){return max;};
+
+		//calculates intersection point of ray with bounding box
+		MyPoint findIntersection(float t, MyRay * r);
+
+
+
+		
+
+	private:
+		MyPoint min;
+		MyPoint max;
+
+};
+
+#endif

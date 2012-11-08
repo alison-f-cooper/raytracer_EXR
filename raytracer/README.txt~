@@ -1,0 +1,23 @@
+**************************************************************************
+HW1.6
+
+Alison Cooper	UNI: afc2135
+
+**************************************************************************
+
+Please run the assignment with one of the .txt files specified and a name
+for an output file (please don't test with test1.txt; it doesn't have 
+materials or a light).
+
+For example:
+
+./raytra test2.txt out.exr 3 1
+
+To run the program to get boxes, please run as
+
+././raytra test2.txt out.exr 3 1 BOXES_FLAG,
+
+where BOXES_FLAG doesn't equal 0.
+
+
+**************************************************************************

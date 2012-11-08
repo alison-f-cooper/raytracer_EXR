@@ -1,0 +1,224 @@
+//Triangle class implementation
+
+#include "Tri.h"
+#include "MyVector.h"
+
+extern int BOXES_FLAG;
+
+//default constructor
+Tri::Tri()
+{
+	MyPoint hack = MyPoint(0,0,0);
+	v1 = hack; v2 = hack; v3 = hack;
+	norm = MyVector(0,0,0);
+	setBBox(hack, hack);
+}
+
+//constructor from coordinates for three vertices, delineated
+//in counter-clockwise order
+
+Tri::Tri(float x_1, float y_1, float z_1, 
+		 float x_2, float y_2, float z_2, 
+		 float x_3, float y_3, float z_3)
+{
+	v1 = MyPoint(x_1, y_1, z_1);
+	v2 = MyPoint(x_2, y_2, z_2);
+	v3 = MyPoint(x_3, y_3, z_3);
+
+	//calculate norm
+	MyVector p2_minus_p1 = MyVector(v1, v2);
+	MyVector p3_minus_p1 = MyVector(v1, v3);
+	norm = p2_minus_p1.crossProduct(p3_minus_p1); 
+	norm.normalize();
+
+	//calculate and set bounding box
+	float minX = calcMin(x_1, x_2, x_3);
+	float minY = calcMin(y_1, y_2, y_3);
+	float minZ = calcMin(z_1, z_2, z_3);
+
+	float maxX = calcMax(x_1, x_2, x_3);
+	float maxY = calcMax(y_1, y_2, y_3);
+	float maxZ = calcMax(z_1, z_2, z_3);
+
+	MyPoint min = MyPoint(minX, minY, minZ);
+	MyPoint max = MyPoint(maxX, maxY, maxZ);
+
+	setBBox(min, max);
+
+}
+
+
+//constructor from three vertices in counterclockwise order
+
+Tri::Tri(const MyPoint & v_1, const MyPoint & v_2, const MyPoint & v_3)
+{
+	v1 = v_1; v2 = v_2; v3 = v_3;
+
+	//calculate and set bounding box
+
+	float x_1 = v1.getX(); float y_1 = v1.getY(); float z_1 = v1.getZ();
+	float x_2 = v2.getX(); float y_2 = v2.getY(); float z_2 = v2.getZ();
+	float x_3 = v3.getX(); float y_3 = v3.getY(); float z_3 = v3.getZ();
+
+	float minX = calcMin(x_1, x_2, x_3);
+	float minY = calcMin(y_1, y_2, y_3);
+	float minZ = calcMin(z_1, z_2, z_3);
+
+	float maxX = calcMax(x_1, x_2, x_3);
+	float maxY = calcMax(y_1, y_2, y_3);
+	float maxZ = calcMax(z_1, z_2, z_3);
+
+	MyPoint min = MyPoint(minX, minY, minZ);
+	MyPoint max = MyPoint(maxX, maxY, maxZ);
+
+	setBBox(min, max);
+
+}
+
+//intersection method inherited from abstract superclass surface
+//uses Barycentric coordinates implementation from textbook pages
+//77-79
+
+bool Tri::intersects(MyRay * r, Intersection * inter, float r_x, float r_y, float r_z)
+{
+	bool intsBox = intersectsBox(r, r_x, r_y, r_z);
+	if(!intsBox)
+	{
+		return false;
+	}
+
+	//if here and flag, then the intersectsBox method will have populated
+	//the intersection object; return true for this to be the intersection
+	//object used
+
+	if(BOXES_FLAG)
+	{
+		return true;
+	}
+
+	MyVector dir = r->getDirection();
+
+	float a = v1.getX() - v2.getX();
+	float b = v1.getY() - v2.getY();
+	float c = v1.getZ() - v2.getZ();
+
+	float d = v1.getX() - v3.getX();
+	float e = v1.getY() - v3.getY();
+	float f = v1.getZ() - v3.getZ();
+
+	float g = dir.getX();
+	float h = dir.getY();
+	float i = dir.getZ();
+
+	//calculate M first
+
+	float ei_minus_hf = e * i - h * f;
+	float gf_minus_di = g * f - d * i;
+	float dh_minus_eg = d * h - e * g;
+
+	float M = a * ei_minus_hf + b * gf_minus_di + c * dh_minus_eg;
+
+	if(M == 0)
+		return false; //no intersection
+
+	//compute t; compute the numerator and divide by M
+	MyPoint o = r->getOrigin();
+
+	float j = v1.getX() - o.getX();
+	float k = v1.getY() - o.getY();
+	float l = v1.getZ() - o.getZ();
+
+	float ak_minus_jb = a * k - j * b;
+	float jc_minus_al = j * c - a * l;
+	float bl_minus_kc = b * l - k * c;
+
+	float t_numerator = f * ak_minus_jb + e * jc_minus_al + d * bl_minus_kc;
+
+	float t = (-1) * t_numerator / M;
+
+	//if t negative, no intersection
+	if(t < 0)
+		return false;
+
+	//calculate Gamma
+
+	float gamma_numerator = i * ak_minus_jb + h * jc_minus_al + g * bl_minus_kc;
+	float gamma = gamma_numerator / M;
+
+	if((gamma < 0) || (gamma > 1))
+		return false; // no intersection
+
+	//calculate beta
+
+	float beta_numerator = j * ei_minus_hf + k * gf_minus_di + l * dh_minus_eg;
+	float beta = beta_numerator / M;
+
+	if((beta < 0) || (beta > (1-gamma)))
+	{
+		return false;
+	}
+
+	//cout << "gets past beta check sometimes" << endl;
+
+	//if got through all of that, then there's an intersection at t
+	//plug t into the ray equation to get the point of intersection
+
+	//ray equation: point = p0 + td
+
+	inter->setT1(t);
+	inter->setTwice(false);
+	MyVector td = dir;
+	td.times(t);
+	MyPoint intersect = o;
+	intersect.plus(td);
+	inter->setPoint1(intersect);
+	inter->setNorm1(norm);
+
+	return true;
+}
+
+//assignment operator
+
+Tri & Tri::operator=(const Tri & other)
+{
+	this->v1 = other.v1;
+	this->v2 = other.v2;
+	this->v3 = other.v3;
+	return * this;
+}
+
+//print
+
+void Tri::print()
+{
+	cout << "Triangle: v1: ";
+	v1.print();
+	cout << " v2: ";
+	v2.print();
+	cout << " v3: ";
+	v3.print();
+}
+
+//helper method to calculate the max of three floats
+
+float Tri::calcMax(float a, float b, float c)
+{
+	float max = a;
+	if(b > max)
+		max = b;
+	if(c > max)
+		max = c;
+	return max;
+}
+
+//helper method to calculate min of three floats
+
+float Tri::calcMin(float a, float b, float c)
+{
+	float min = a;
+	if(b < min)
+		min = b;
+	if(c < min)
+		min = c;
+	return min;
+}

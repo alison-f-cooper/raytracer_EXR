@@ -1,0 +1,194 @@
+//Describes sphere functions
+
+#include "Sphere.h"
+
+extern int BOXES_FLAG;
+
+//Default constructor
+
+Sphere::Sphere()
+{
+	origin = MyPoint(0,0,0);
+	radius = 0;
+	setBBox(origin, origin);
+}
+
+
+//Constructor
+
+Sphere::Sphere(const MyPoint & o, const float r)
+{
+	origin = o;
+	radius = r;
+
+	//calculate bounding box
+
+	float xMax = origin.getX() + radius;
+	float yMax = origin.getY() + radius;
+	float zMax = origin.getZ() + radius;
+
+	float xMin = origin.getX() - radius;
+	float yMin = origin.getY() - radius;
+	float zMin = origin.getZ() - radius;
+
+	MyPoint bbMin = MyPoint(xMin, yMin, zMin);
+	MyPoint bbMax = MyPoint(xMax, yMax, zMax);
+
+	setBBox(bbMin, bbMax);
+
+}
+
+//Tests for intersection with a ray. Takes in as a parameter a
+//blank intersection object, which it populates with data if
+//there is at least one intersection.
+
+bool Sphere::intersects(MyRay * r, Intersection * i, float r_x, float r_y, float r_z)
+{
+	//check if intersects bounding box
+
+	bool intsBox = intersectsBox(r, r_x, r_y, r_z, i);
+	if(!intsBox)
+	{
+		return false;
+	}
+
+	//if here and flag, then the intersectsBox method will have populated
+	//the intersection object; return true for this to be the intersection
+	//object used
+
+	if(BOXES_FLAG)
+	{
+		return true;
+	}
+	
+	double discriminant = calculateDiscriminant(r);
+	if (discriminant < 0) //no intersection
+	{
+		return false;
+	}
+	else if (discriminant == 0) // one intersection
+	{
+		//calculate t1, the time at intersection
+		MyVector d = r->getDirection();
+		MyPoint p0 = r->getOrigin();
+		MyVector v(origin, p0);
+		double d_dot_d = d.dotProduct(d);
+		//store negative d
+		MyVector neg_d = d;
+		neg_d.times(-1);
+		double numerator = neg_d.dotProduct(v);
+		//set t1 in i
+		float t1 = (float) numerator/d_dot_d;
+		
+		//check if t is negative, i.e. surface is behind
+		//camera; if yes, return false - no intersection
+		//with ray; there was an intersection with the line
+
+		if(t1 < 0)
+			return false; 
+
+		i->setT1(t1);
+
+		//get and store the intersection point at t1
+		MyPoint p1 = intersection(t1, r);
+		i->setPoint1(p1);
+		//only one intersection
+		i->setTwice(false);
+		//calculate and store norm at intersection
+		i->setNorm1(p1, (*this).origin);
+		return true;
+	}
+	else if (discriminant > 0) //two intersections
+	{
+		double s_root = sqrt(discriminant);
+		//calculate t1 and t2, the times at intersection
+		MyVector d = r->getDirection();
+		MyPoint p0 = r->getOrigin();
+		MyVector v(origin, p0);
+		double d_dot_d = d.dotProduct(d);
+		//store negative d
+		MyVector neg_d = d;
+		neg_d.times(-1);
+		double numerator = neg_d.dotProduct(v);
+		//set t1 and t2 in i
+
+		float t1 = (float) (numerator + s_root) /d_dot_d;
+
+		//check if t1 is negative; if yes, so is t2, no
+		//intersection with the ray
+
+		if(t1 < 0)
+			return false;
+
+		i->setT1(t1);
+		MyPoint p1 = intersection(t1, r);
+		i->setPoint1(p1);
+		i->setNorm1(p1, (*this).origin);
+		//now check if t2 is negative; t1 is positive,
+		//so one valid intersection
+
+		float t2 = (float) (numerator - s_root) /d_dot_d;
+
+		if(t2 < 0)
+		{
+			i->setTwice(false);
+		}
+		else //t2 >= 0
+		{
+			i->setT2(t2);	
+			MyPoint p2 = intersection(t2, r);
+			i->setPoint2(p2);
+			i->setNorm2(p2, (*this).origin);
+			i->setTwice(true);
+		}		
+		return true;
+	}
+	//unreachable, but to make the compiler happy
+	return false;
+}
+
+//Helper method for calculating the discriminant
+
+double Sphere::calculateDiscriminant(MyRay * r)
+{
+	MyVector d = r->getDirection();
+	double r_squared = radius * radius;
+	MyPoint p0 = r->getOrigin();
+	MyVector v(origin, p0);
+	double dot1 = d.dotProduct(v);
+	double d_dot_d = d.dotProduct(d);
+	double v_dot_v = v.dotProduct(v);
+	double val1 = dot1 * dot1;
+	double val2 = d_dot_d * (v_dot_v - r_squared);
+	double disc = val1 - val2;
+	return disc;		
+}
+
+//Print method for debugging
+
+void Sphere::print()
+{
+	cout << "Center: ";
+	origin.print();
+	cout << "	radius: " << radius;
+	Material * temp = getMaterial();
+	cout << endl << "material:" << endl;
+	temp->print();
+}
+
+
+//If intersects, call this to return the point of intersection
+//helper method
+
+MyPoint Sphere::intersection(float t, MyRay * r)
+{
+	//formula for ray is r(t) = p + td
+	MyPoint p = r->getOrigin();
+	MyVector d = r->getDirection();
+	//get vector td
+	MyVector td = d;
+	td.times(t);
+	//p + td, which is intersect
+	p.plus(td); 
+	return p;
+}

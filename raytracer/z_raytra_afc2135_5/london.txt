@@ -1,0 +1,21 @@
+/ text file to render london bridge from obj
+ 
+m 0 0 1 0.5 0.5 0.5 10. 0 0 .2
+
+w london_bridge_tri_final.obj
+
+m 0.5 0.5 0.7 0.5 0.5 0.5 10. 0.0 0.0 0.0
+
+w water.obj
+ 
+/ camera: pointing towards +X, 35mmx25mm "film", 35mm focal length
+/ making 160x117 pixels
+c 15. 32. 40. -.75 -1.5 -2 35.0 35.0 25.0 600 400
+ 
+/ point light, near camera
+/l p 0 30 0 10000 10000 10000
+/l p 10 30 0 10000 10000 10000
+l p -20 30 -20 8000 8000 8000
+l p 20 5 -20 8000 8000 8000
+
+

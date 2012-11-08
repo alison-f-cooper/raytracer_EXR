@@ -1,0 +1,9 @@
+/ simple test scene file, all units in mm.
+ 
+/ one sphere:
+s 0. 13.67 -62.57 10.
+ 
+ 
+/ camera: pointing towards -Z, 35mmx25mm "film", 35mm focal length
+/ making 800x600 pixels
+c 24.2 29.3 53.6 0.0 0.0 -1.0 35.0 35.0 25.0 800 600

@@ -1,0 +1,15 @@
+/ test scene file, all units in mm.
+ 
+/ red material, w specular hightlight
+m 0.7 0.0 0.0 0.5 0.5 0.5 100. 0.0 0.0 0.0
+ 
+ 
+/ load in the paraboloid obj file
+w paraboloid.obj
+ 
+/ camera: pointing towards +X, 35mmx25mm "film", 35mm focal length
+/ making 160x117 pixels
+c -20. 15. 0. 1. -0.75 0.0 35.0 35.0 25.0 800 585
+ 
+/ point light, near camera
+l p -35 0 0 1 1 1

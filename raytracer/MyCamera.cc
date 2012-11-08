@@ -1,0 +1,746 @@
+//Describes camera functions
+
+#include "MyCamera.h"
+#include "AmbLight.h"
+
+//extern Array2D<Rgba> pixels;
+extern vector<PointLight*> p_lights;
+extern AmbLight * ambient;
+extern ALight * area_light;
+
+extern int PRIMARY_N;
+extern int SHADOW_N;
+
+//default constructor
+MyCamera::MyCamera()
+{
+	eye = MyPoint(0,0,0);
+	d = 0;
+	u = MyVector(1,0,0);
+	v = MyVector(0,1,0);
+	w = MyVector(0,0,1);
+	nx = 0;
+	ny = 0;
+	l = 0;
+	r = 0;
+	t = 0;
+	b = 0;	
+}
+
+//Constructor
+
+MyCamera::MyCamera(const MyPoint & e, MyVector & direction, float focalLen,
+		   float iw, float ih, int pw, int ph)
+{
+	//check for case where direction vector is parallel to up
+
+	MyVector temp = direction;
+	temp.normalize();
+	MyVector up(0,1,0);
+	if(temp.equals(up))
+	{
+		cout << "Camera parallel to up direction" << endl;
+		exit(-1);
+	}
+
+
+	eye = e;
+	d = focalLen;
+	nx = pw;
+	ny = ph;
+	r = iw/2;
+	l = -r;
+	t = ih / 2;
+	b = -t;
+
+
+	u = direction.crossProduct(up);
+	MyVector directionCopy = direction;
+	directionCopy.times(-1);
+	w = directionCopy;
+	v = u.crossProduct(direction);
+
+	u.normalize();
+	w.normalize();
+	v.normalize();
+
+	cout << "Camera orientation: " << endl;
+	cout << "u: "; u.print();
+	cout << "	w: "; w.print();
+	cout << "	v: "; v.print();
+	
+}
+
+//print, for debugging
+
+void MyCamera::print()
+{
+	cout << "Eye: ";
+	eye.print();
+	cout << endl;
+	cout << "Focal length: " << d << endl;
+	cout << "l: " << l << "	r: " << r << "  t: " << t << "  b: " << b << endl;
+	cout << "Pixels width: " << nx << "	  Pixels height: " << ny << endl;
+	cout << "Basis: u: ";
+	u.print();
+	cout << "	v: ";
+	v.print();
+	cout << "	w: ";
+	w.print();
+	cout << endl;
+}
+
+//Generate ray from e to pixel i,j
+
+MyRay * MyCamera::generateRay(float i, float j)
+{
+	//translate i,j to u,v in image
+	float U = l + (r - l) * (i + 0.5)/nx;
+	float V = t + (b - t)* (j + 0.5)/ny;
+
+	//calculate direction
+
+	MyVector w_temp = w;
+	MyVector u_temp = u;
+	MyVector v_temp = v;
+
+	// gets w * -d
+	w_temp.times(-d);
+	// gets u * U
+	u_temp.times(U);
+	// get v * V
+	v_temp.times(V);
+	//gets the new w
+	MyVector dir = w_temp;
+	//adds the new u
+	dir.plus(u_temp);
+	//adds the new v
+	dir.plus(v_temp);
+	
+	//Normalize direction
+
+	dir.normalize();
+
+	//Return pointer to a ray
+	MyRay * to_return = new MyRay(eye, dir);
+	return to_return;
+}
+
+//Renders the scene
+//iterates through each pixel, generating a ray to the
+//pixel at the current position. It gets the pixel at
+//that position. Iterating through the list of objects
+//in the scene and checking for an intersection. If it
+//intersects, the pixel is colored red. If there is not
+//an intersection, the color is black.
+
+void MyCamera::renderScene(vector<Surface*> & surfaces)
+{
+	pixels.resizeErase(ny, nx);
+	MyPoint closest_int_point;
+	for(int y = 0; y < ny; y++)
+	{
+		for(int x = 0; x < nx; x++)
+		{
+			MyRay * current = 0; //initialize to empty
+			if(PRIMARY_N == 1)
+			{
+				//if(SHADOW_N == 1)
+				//	SHADOW_N = 2;
+				current = generateRay(x, y);
+				Rgba & px = pixels[y][x]; //gets current pixel
+				MyVector color = lightColor(current, 5, p_lights,surfaces, area_light);
+				px.a += 1;
+				px.r += color.getX();
+				px.g += color.getY();
+				px.b += color.getZ();
+				delete current;
+			}
+			else //more than 1 primary ray
+			{
+				MyVector color = MyVector(0,0,0); //initialize to empty
+			
+				//take samples, cast rays to samples, add up color)
+				for(int p = 0; p < PRIMARY_N; p++)
+				{
+					for(int q = 0; q < PRIMARY_N; q++)
+					{
+						float randX = (float) rand() / RAND_MAX;
+						float randY = (float) rand() / RAND_MAX;
+						float sampleX = x + (p + randX)/PRIMARY_N - 0.5;
+						float sampleY = y + (q + randY)/PRIMARY_N - 0.5;
+						current = generateRay(sampleX, sampleY);
+						MyVector rayColor = lightColor(current, 5, p_lights,surfaces, area_light);
+						//add into the accumulated color vector
+						color.plus(rayColor);
+					}
+				}
+				//calculate the average color of the samples
+				float divide = (float) 1/(PRIMARY_N * PRIMARY_N);
+				color.times(divide);
+			
+				Rgba & px = pixels[y][x]; //gets current pixel
+				//add in averaged color
+				px.a += 1;
+				px.r += color.getX();
+				px.g += color.getY();
+				px.b += color.getZ();
+				delete current;
+			}
+		}//end of for-loop iterating through pixel height
+	}//end of for-loop iterating through pixel width
+	cout << "Finished renderScene" << endl;
+}
+
+//Helper method (private) for calculating Lambertian shading
+// Ld = kd I max(0, n · l), where kd is an RGB triple for diffusely reflected light,
+// I is the illumination from the source (point light), n is the surface normal, and
+// l is the direction to the light. Returns the triple containing the amounts of R,
+// G, and B. Returning these values as a vector.
+
+MyVector * MyCamera::calcLambertian(Material * m, MyPoint & intersect, MyPoint & light_pos, MyVector & normal, float r, float g, float b)
+{
+	//first calculate the direction vector from the intersection to the light
+	MyVector l = MyVector(intersect, light_pos);
+	l.normalize();
+
+	//calculate dot product of n and l
+
+	float n_dot_l = normal.dotProduct(l);
+	if(n_dot_l < 0)
+		n_dot_l = 0;
+
+	//multiply diffuse coefficient into i
+
+	float dr = m->getDR();
+	float dg = m->getDG();
+	float db = m->getDB();
+
+	float prod_r = dr * r;
+	float prod_g = dg * g;
+	float prod_b = db * b;
+
+	MyVector * Ld = new MyVector(prod_r, prod_g, prod_b);
+	
+	Ld->times(n_dot_l);
+	return Ld;
+}
+
+//Helper method (private) for calculating specular shading.
+//Ls = ks I max(0, n · h)^p, where h is the half vector, defined as
+//bisector(v, l) = (v + l)/||v+l||, where v is the direction to
+//the camera eye, and l is the direction to the light
+
+MyVector * MyCamera::calcSpecular(Material * m, MyPoint & intersect, MyPoint &light_pos,
+				                MyVector & normal, float r, float g, float b)
+{
+	//first calculate direction to the light from the intersection point
+
+	MyVector l = MyVector(intersect, light_pos);
+	l.normalize();
+
+	//calculate the direction to the eye from the intersection point
+
+	MyVector v = MyVector(intersect, eye);
+	v.normalize();
+
+	//calculate the bisector, h
+
+	MyVector h = v;
+	h.plus(l);
+	h.normalize();
+
+	//calculate dot product of n and h
+
+	float n_dot_h = normal.dotProduct(h);
+	if(n_dot_h < 0)
+		n_dot_h = 0;
+
+	//raise to the power of the Phong coefficient
+	float phong = m->getPhong();
+	float raised = pow(n_dot_h, phong);
+
+	//multiply specular coefficient into i
+
+	float sr = m->getSR();
+	float sg = m->getSG();
+	float sb = m->getSB();
+
+	float prod_r = sr * r;
+	float prod_g = sg * g;
+	float prod_b = sb * b;
+
+	MyVector * Ls = new MyVector(prod_r, prod_g, prod_b);
+	Ls->times(raised);
+	return Ls;
+}
+
+// see if in shadow
+
+bool MyCamera::inShadow(MyPoint & pl_pos, MyPoint & intsect, vector<Surface*> & surfaces)
+{
+	//create ray from an offset of the intersection to the light
+	MyVector v = MyVector(intsect, pl_pos);
+	//save the distance to the light before normalizing
+	float max_distance = v.getMagnitude();
+	v.normalize();
+	MyVector offset = v;
+	//.01 x the unit vector, i.e. in the right direction, approx. .002 down the vector
+	offset.times(.01);
+	MyPoint offIntsect = intsect;
+	offIntsect.plus(offset);
+	MyRay * shadowRay = new MyRay(offIntsect, v); 
+	//loop through objects
+	//if get a t value that is between 0 and max_distance, i.e.
+	//an intersection on that interval, return true; there is an object blocking the light
+	//the ray is p0 + td. Since d is normalized, we can say that the distance is t, i.e.
+	//we can compare the t value of the intersection with the max_distance, since it is
+	//the distance along the ray
+	
+	for(int i = 0; i < (int) surfaces.size(); i++)
+	{
+		Intersection * int_obj = new Intersection(); //to be populated
+		Surface * object = surfaces[i];
+		MyVector shadowDir = shadowRay->getDirection();
+		float r_x = 1 / (shadowDir.getX());
+		float r_y = 1 / (shadowDir.getY());
+		float r_z = 1 / (shadowDir.getZ());
+		if(object->intersects(shadowRay, int_obj, r_x, r_y, r_z))
+		{
+			float t1 = int_obj->getT1();
+			if(t1 >= 0 && t1 <= max_distance) //an object is blocking the light
+			{
+				delete int_obj;
+				return true;
+			}
+			//check second intersection, if there is one
+			if(int_obj->getTwice())
+			{
+				float t2 = int_obj->getT2();
+				if(t2 >= 0 && t2 <= max_distance) //an object blocking the light
+				{
+					delete int_obj;
+					return true;
+				}
+			}
+		}
+		delete int_obj;
+	}
+	return false; // not in shadow; light hits object
+}
+
+
+//helper method for calculating shading; recursive to incorporate ideal specular
+
+MyVector MyCamera::lightColor(MyRay * ray, int recurse_limit, vector<PointLight*> & lights,
+							  vector<Surface*> & surfaces, ALight * area_light)
+{
+	MyRay * reflectedRay = 0; //so that can delete pointer at base case
+	//base case for recursion
+	if(recurse_limit == 0)
+	{
+		delete reflectedRay;
+		return (MyVector(0,0,0));
+	}
+	MyVector R = MyVector(0,0,0); //to tally up color and return
+
+	//calculate closest intersection with scene along the ray
+
+	float closest_distance = FLT_MAX; //initialize t to max
+	Surface * closest_surface = NULL; //initialize closest surface
+	MyVector closest_int_norm;
+	MyPoint closest_int_point;
+	Intersection * intersect = new Intersection();//to be populated
+	for(int k = 0; k < (int) surfaces.size(); k++)
+	{
+		Surface * object = surfaces[k];
+		MyVector rayDir = ray->getDirection();
+		float r_x = 1 / (rayDir.getX());
+		float r_y = 1 / (rayDir.getY());
+		float r_z = 1 / (rayDir.getZ());
+		//Intersection object mutated in if statement call
+		if(object->intersects(ray, intersect, r_x, r_y, r_z))
+		{
+			//done to check for which intersection is closest
+			//to the camera, if multiple shapes intersected
+
+			//if only once, only this part of the code will run
+			MyPoint intsct1 = intersect->getPoint1();
+			MyPoint start1 = ray->getOrigin();
+			MyVector d = MyVector(start1, intsct1);
+			float distance = d.getMagnitude();
+			//check to see if closer than previous surface
+			if(distance < closest_distance)
+			{
+				//update closest distance
+				//update closest object
+				//hang on to intersection info
+				closest_distance = distance;
+				closest_surface = object;
+				closest_int_point = intersect->getPoint1();
+				closest_int_norm = intersect->getNorm1();
+			}
+
+			//if another intersection, check against it
+			if(intersect->getTwice())
+			{
+				MyPoint start2 = ray->getOrigin();
+				MyPoint intsct2 = intersect->getPoint2();
+				MyVector d2 = MyVector(start2, intsct2);
+				float distance2 = d2.getMagnitude();
+				//if smaller distance than other intersection,
+				//update info
+				if(d2.getMagnitude() < closest_distance)
+				{
+					closest_distance = distance2;
+					closest_surface = object;
+					closest_int_point = intersect->getPoint2();
+					closest_int_norm = intersect->getNorm2();
+				}
+			}
+		}//End of updating intersection info
+	}//end of for-loop iterating through surfaces
+
+	//if haven't returned yet, i.e. intersection, iterate through
+	//lights, checking for shadows and doing the appropriate shading
+	//calculations
+
+	Material * material = 0;
+	if(closest_distance != FLT_MAX)
+	{
+		material = closest_surface->getMaterial();
+		if(lights.size() > 0)
+		{	
+			for(int light = 0; light < (int) lights.size(); light++)
+			{
+				PointLight * point_light = lights[light];
+				MyPoint light_pos = point_light->getPosition();
+
+				//see if in shadow
+
+				bool blocked = inShadow(light_pos, closest_int_point, surfaces);
+
+				if(!blocked) //add in lighting, else just do ambient
+				{
+					float light_r = point_light->getR();
+					float light_g = point_light->getG();
+					float light_b = point_light->getB();
+					//Lambertian shading first
+				
+					MyVector * diffuse = calcLambertian(material, closest_int_point,
+										 light_pos, closest_int_norm, light_r, light_g,
+										 light_b);
+
+					//specular shading
+				
+
+					MyVector * specular = calcSpecular(material, closest_int_point,
+											  light_pos, closest_int_norm, light_r, light_g,
+											  light_b);
+
+					float colorRed = diffuse->getX() + specular->getX();
+					float colorGreen = diffuse->getY() + specular->getY();
+					float colorBlue = diffuse->getZ() + specular->getZ();
+			
+					//add in weight
+					
+					//factor in distance squared
+					MyVector distance = MyVector(closest_int_point, light_pos);
+					float d = distance.getMagnitude();
+					float d_squared = d * d;
+					float divide_by_d = (float) 1/d_squared;
+					colorRed *= divide_by_d;
+					colorGreen *= divide_by_d;
+					colorBlue *= divide_by_d;	
+
+					colorRed = R.getX() + colorRed;
+					colorGreen = R.getY() + colorGreen;
+					colorBlue = R.getZ() + colorBlue;
+					//color pixels
+					R.setX(colorRed);
+					R.setY(colorGreen);
+					R.setZ(colorBlue);
+				}
+				else // in shadow
+				{
+					float ambientR = (ambient->getR()*material->getDR());
+					float ambientG = (ambient->getG()*material->getDG());
+					float ambientB = (ambient->getB()*material->getDB());
+					ambientR /= recurse_limit * 2;
+					ambientG /= recurse_limit * 2;
+					ambientB /= recurse_limit * 2;
+					float cR = R.getX() + ambientR;
+					float cG = R.getY() + ambientG;
+					float cB = R.getZ() + ambientB;
+					R.setX(cR);
+					R.setY(cG);
+					R.setZ(cB);
+				
+				}
+			}
+		}
+
+		//calculations for area light, if there is one
+		if(area_light != NULL)
+		{
+			//special case for one shadow ray
+			if(SHADOW_N == 1) // stratify and shuffle
+			{
+				MyVector tempRGB = MyVector(0,0,0);
+				area_light->clearSamples();
+				//stratify into the number of samples
+				//that is the same number of primary rays
+				area_light->generateSamples(PRIMARY_N);
+				area_light->shuffle();
+				MyPoint randomSample = area_light->getSample();
+				bool isBlocked = inShadow(randomSample, closest_int_point, surfaces);
+				if(!isBlocked) // not in shadow
+				{
+					float light_r = area_light->getR();
+					float light_g = area_light->getG();
+					float light_b = area_light->getB();
+					//Lambertian shading first
+				
+					MyVector * diffuse2 = calcLambertian(material, closest_int_point,
+										 randomSample, closest_int_norm, light_r, light_g,
+										 light_b);
+
+					//specular shading
+				
+					MyVector * specular2 = calcSpecular(material, closest_int_point,
+											  randomSample, closest_int_norm, light_r, light_g,
+											  light_b);
+
+					float colorRed = diffuse2->getX() + specular2->getX();
+					float colorGreen = diffuse2->getY() + specular2->getY();
+					float colorBlue = diffuse2->getZ() + specular2->getZ();
+
+
+					//add in weights
+					//multiply temp first by the cosine of the angle between
+					//the light's direction vector and the direction to the surface sample,
+					//which is the oppostive vector of the current ray
+					
+					MyVector light_direction = area_light->getDir();
+					light_direction.normalize();
+					MyVector sample_direction = MyVector(randomSample, closest_int_point);
+					//save length for distance calculation
+					float d = sample_direction.getMagnitude();
+			
+					sample_direction.normalize();
+					float cosWeight = light_direction.dotProduct(sample_direction);
+					colorRed *= cosWeight;
+					colorBlue *= cosWeight;
+					colorGreen *= cosWeight;
+			
+					//factor in distance squared
+					
+					float d_squared = d * d;
+					float divide_by_d = (float) 1/d_squared;
+					colorRed *= divide_by_d;
+					colorGreen *= divide_by_d;
+					colorBlue *= divide_by_d;	
+
+					colorRed = tempRGB.getX() + colorRed;
+					colorGreen = tempRGB.getY() + colorGreen;
+					colorBlue = tempRGB.getZ() + colorBlue;
+					//color pixels
+					tempRGB.setX(colorRed);
+					tempRGB.setY(colorGreen);
+					tempRGB.setZ(colorBlue);
+
+				}
+				else // in shadow
+				{
+					float ambientR = (ambient->getR()*material->getDR());
+					float ambientG = (ambient->getG()*material->getDG());
+					float ambientB = (ambient->getB()*material->getDB());
+					ambientR /= recurse_limit;
+					ambientG /= recurse_limit;
+					ambientB /= recurse_limit;
+					float cR = tempRGB.getX() + ambientR;
+					float cG = tempRGB.getY() + ambientG;
+					float cB = tempRGB.getZ() + ambientB;
+					tempRGB.setX(cR);
+					tempRGB.setY(cG);
+					tempRGB.setZ(cB);	
+				}
+
+				float R_plus_area_red = R.getX() + tempRGB.getX();
+				float R_plus_area_green = R.getY() + tempRGB.getY();
+				float R_plus_area_blue = R.getZ() + tempRGB.getZ();
+				R.setX(R_plus_area_red);
+				R.setY(R_plus_area_green);
+				R.setZ(R_plus_area_blue); 
+/*
+second, the cosine of the angle between the light's direction vector and the direction to 	the surface sample (which is the inverse of the vector from the surface to the light sample), and thirdly by the inverse of the distance squared
+*/
+			}
+
+			else // more than one shadow ray
+			{
+
+				area_light->clearSamples();
+				area_light->generateSamples(SHADOW_N);
+				MyVector tempRGB = MyVector(0,0,0);
+				vector<MyPoint> samples = area_light->getSamples();
+				//cout << endl;
+				//area_light->print();
+				//cout << endl << endl;
+				int samples_num = area_light->getSamplesNum();
+			
+				//iterate through samples
+				for(int sample = 0; sample < samples_num; sample++)
+				{
+					MyPoint current_sample = samples[sample];
+					bool isBlocked = inShadow(current_sample, closest_int_point, surfaces);
+					if(!isBlocked) // not in shadow
+					{
+						float light_r = area_light->getR();
+						float light_g = area_light->getG();
+						float light_b = area_light->getB();
+						//Lambertian shading first
+				
+						MyVector * diffuse2 = calcLambertian(material, closest_int_point,
+										 current_sample, closest_int_norm, light_r, light_g,
+										 light_b);
+
+						//specular shading
+				
+						MyVector * specular2 = calcSpecular(material, closest_int_point,
+											  current_sample, closest_int_norm, light_r, light_g,
+											  light_b);
+
+						float colorRed = diffuse2->getX() + specular2->getX();
+						float colorGreen = diffuse2->getY() + specular2->getY();
+						float colorBlue = diffuse2->getZ() + specular2->getZ();
+
+							//add in weights
+						//multiply temp first by the cosine of the angle between
+						//the light's direction vector and the direction to the surface sample,
+						//which is the oppostive vector of the current shadow ray
+						
+						MyVector light_direction = area_light->getDir();
+						light_direction.normalize();
+						MyVector sample_direction = MyVector(current_sample, closest_int_point);
+						//save length for distance calculation
+						float d = sample_direction.getMagnitude();
+						sample_direction.normalize();
+						float cosWeight = light_direction.dotProduct(sample_direction);
+						colorRed *= cosWeight;
+						colorBlue *= cosWeight;
+						colorGreen *= cosWeight;
+			
+						//factor in distance squared
+						float d_squared = d * d;
+						float divide_by_d = (float) 1/d_squared;
+						colorRed *= divide_by_d;
+						colorGreen *= divide_by_d;
+						colorBlue *= divide_by_d;	
+						
+						colorRed = tempRGB.getX() + colorRed;
+						colorGreen = tempRGB.getY() + colorGreen;
+						colorBlue = tempRGB.getZ() + colorBlue;
+						//color pixels
+						tempRGB.setX(colorRed);
+						tempRGB.setY(colorGreen);
+						tempRGB.setZ(colorBlue);
+					}
+					else // in shadow
+					{
+						float ambientR = (ambient->getR()*material->getDR());
+						float ambientG = (ambient->getG()*material->getDG());
+						float ambientB = (ambient->getB()*material->getDB());
+						ambientR /= recurse_limit;
+						ambientG /= recurse_limit;
+						ambientB /= recurse_limit;
+						float cR = tempRGB.getX() + ambientR;
+						float cG = tempRGB.getY() + ambientG;
+						float cB = tempRGB.getZ() + ambientB;
+						tempRGB.setX(cR);
+						tempRGB.setY(cG);
+						tempRGB.setZ(cB);
+					}
+				}//end of for-loop through samples
+
+				//take average
+				float divide = (float) 1/(SHADOW_N * SHADOW_N);
+				tempRGB.times(divide);
+				float R_plus_area_red = R.getX() + tempRGB.getX();
+				float R_plus_area_green = R.getY() + tempRGB.getY();
+				float R_plus_area_blue = R.getZ() + tempRGB.getZ();
+				R.setX(R_plus_area_red);
+				R.setY(R_plus_area_green);
+				R.setZ(R_plus_area_blue); 
+			}
+		}//end of area light calculations	
+
+	}//end of specular, diffuse, shadow shading
+	//if no intersection, return black RGB
+	else
+	{
+		return (MyVector(0,0,0));
+	}
+	
+	//mirror reflection
+	if(!material->isMirror())
+	{
+		return R;
+	}
+	else
+	{
+		//calculate reflected ray, accounting for offset
+		//return with recursive call
+		
+		//compute reflected ray: d - 2(d . N)N, where
+		//d is the direction of the current ray from the
+		//camera to the point of intersection, i.e. pixel
+		//and N is the normal at the intersection
+
+		MyVector d = ray->getDirection();
+		MyVector N = closest_int_norm;
+		//calculate -2(d . N)
+
+		float calculation1 = (-2) * d.dotProduct(N);
+		MyVector intermediate_N = N;
+		intermediate_N.times(calculation1);
+		MyVector reflRayDir = d;
+		reflRayDir.plus(intermediate_N);
+		reflRayDir.normalize();
+		//offset the origin of the ray, which is the intersection point
+
+		MyVector offset = reflRayDir;
+
+		//.01 x the unit vector, i.e. in the right direction, approx. .002 down the vector
+		offset.times(.01);
+		MyPoint offIntsect = closest_int_point;
+		offIntsect.plus(offset);
+		reflectedRay = new MyRay(offIntsect, reflRayDir);
+		//recursive call
+		MyVector i_specular = lightColor(reflectedRay, recurse_limit - 1, lights, surfaces, area_light);
+		//piece-wise multiplication
+		float addMirrorR = material->getIR() * i_specular.getX();
+		float addMirrorG = material->getIG() * i_specular.getY();
+		float addMirrorB = material->getIB() * i_specular.getZ();
+
+		//add to R
+		MyVector toAdd = MyVector(addMirrorR, addMirrorG, addMirrorB);
+		R.plus(toAdd);
+		//clean-up
+		closest_distance = FLT_MAX;
+		closest_surface = NULL;
+		delete intersect;
+		//return modified R
+		return R;
+	}
+}
+
+//Writes to an exr file
+
+void MyCamera::writeImage(const char fileName[])
+{
+	RgbaOutputFile file (fileName, nx, ny, WRITE_RGBA);
+	file.setFrameBuffer (&pixels[0][0], 1, nx);
+	file.writePixels (ny);
+}
+
